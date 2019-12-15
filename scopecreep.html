@@ -1,0 +1,1260 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Scope Creep</title>
+    <script type="text/javascript" src="./scripts/jquery.min.js"></script>
+    <script type="text/javascript" src="./scripts/jquery.cookie.js"></script>
+    <script type="text/javascript" src="./scripts/vivagraph.min.js"></script>
+    <script type="text/javascript" src="./scripts/socket.io.js"></script>
+    <style>
+      html, body {margin: 0; height: 100%; overflow: hidden}
+
+      tr:hover {
+        background-color: #0ff;
+      }
+
+      .warning {
+        background-color: rgba(255, 0, 0, 0.3);
+      }
+
+      .ratelimit {
+        background-color: rgba(255, 255, 0, 0.3);
+      }
+
+      .benign {
+        background-color: rgba(0, 255, 0, 0.3);
+      }
+
+      /* The switch - the box around the slider */
+      .switch {
+        position: relative;
+        display: inline-block;
+        width: 40px;
+        height: 20px;
+      }
+      
+      /* Hide default HTML checkbox */
+      .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      
+      /* The slider */
+      .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #db2b2b;
+        -webkit-transition: .4s;
+        transition: .4s;
+      }
+      
+      .slider:before {
+        position: absolute;
+        content: "";
+        height: 16px;
+        width: 16px;
+        left: 2px;
+        bottom: 2px;
+        background-color: white;
+        -webkit-transition: .4s;
+        transition: .4s;
+      }
+      
+      input:checked + .slider {
+        background-color: #2196F3;
+      }
+      
+      input:focus + .slider {
+        box-shadow: 0 0 1px #2196F3;
+      }
+      
+      input:checked + .slider:before {
+        -webkit-transform: translateX(20px);
+        -ms-transform: translateX(20px);
+        transform: translateX(20px);
+      }
+      
+      /* Rounded sliders */
+      .slider.round {
+        border-radius: 20px;
+      }
+      
+      .slider.round:before {
+        border-radius: 50%;
+      }
+    </style>
+    <script type="text/javascript">
+        link_switch = false;
+        function main () {
+            // This demo shows how to create an SVG node which is a bit more complex
+            // than single image. Do accomplish this we use 'g' element and
+            // compose group of elements to represent a node.
+            var graph = Viva.Graph.graph();
+            var graphics = Viva.Graph.View.svgGraphics(),
+                nodeSize = 24;
+            //test nodes
+            //graph.addNode('anvaka', '91bad8ceeec43ae303790f8fe238164b');
+            //graph.addNode('indexzero', 'd43e8ea63b61e7669ded5b9d3c2e980f');
+            //graph.addLink('anvaka', 'indexzero');
+            graphics.node(function(node) {
+              // This time it's a group of elements: http://www.w3.org/TR/SVG/struct.html#Groups
+              var ui = Viva.Graph.svg('g'),
+                  // Create SVG text element with user id as content
+                  svgText = Viva.Graph.svg('text')
+                     .attr('y', '-4px')
+                     .text(node.id)
+                     .attr("class", "node")
+                     .attr("id", node.id),
+                  img = Viva.Graph.svg('image')
+                     .attr('width', nodeSize)
+                     .attr('height', nodeSize)
+                     //.link('https://secure.gravatar.com/avatar/' + node.data);
+                     .link('./images/' + node.data);
+              ui.append(svgText);
+              ui.append(img);
+              return ui;
+            }).placeNode(function(nodeUI, pos) {
+                // 'g' element doesn't have convenient (x,y) attributes, instead
+                // we have to deal with transforms: http://www.w3.org/TR/SVG/coords.html#SVGGlobalTransformAttribute
+                nodeUI.attr('transform',
+                            'translate(' +
+                                  (pos.x - nodeSize/2) + ',' + (pos.y - nodeSize/2) +
+                            ')');
+            });
+
+            var layout = Viva.Graph.Layout.forceDirected(graph, {
+              springLength : 200,
+              springCoeff : 0.0005,
+              dragCoeff : 0.03,
+              gravity : -1.2,
+              theta : 0.08
+            });
+
+            // Render the graph
+            var renderer = Viva.Graph.View.renderer(graph, {
+                    graphics : graphics,
+                    layout : layout
+                });
+            renderer.run();
+            return graph;
+        }
+        $(document).ready(function() {
+          //create an abstract object that will track connections so we can restore deleted nodes based on what they were connected to
+
+          all_connections = {}
+
+          try{
+            if($.cookie('shodan_api_key_cookie') !== ""){
+              $("#shodan_api_key").val($.cookie('shodan_api_key_cookie'))
+            }
+            if($.cookie('linkedin_cookie') !== ""){
+              $("#linkedin_cookie").val($.cookie('linkedin_cookie'))
+            }
+            if($.cookie('hunter_api_key_cookie') !== ""){
+              $("#hunter_api_key").val($.cookie('hunter_api_key_cookie'))
+            }
+            if($.cookie('whoxy_api_key_cookie') !== ""){
+              $("#whoxy_api_key").val($.cookie('whoxy_api_key_cookie'))
+            }
+            if($.cookie('port_list') !== ""){
+              $("#port_list").val($.cookie('port_list'))
+            }
+            if($.cookie('settings_visible') == "false"){
+              $("#settings").hide()
+            }
+            if($.cookie('stats_visible') == "false"){
+              $("#stats_table").hide()
+            }
+          }catch(err){
+            console.log("problem setting cookies")
+          }
+
+          $("#node_name").focusout(function(){
+            $(".node").attr("class", "node")
+            $(".node").attr("fill", "black")
+            //try to make a guess about what type of node is being added
+            if($("#node_name").val() ==  ""){
+              return
+            }
+            if($("#node_name").val().indexOf('/') > -1){
+              node = mygraph.addNode($("#node_name").val(), 'cidr')
+            }else if ($("#node_name").val().indexOf('.') > -1){
+              if($("#node_name").val().split('.').length == 2){
+                node = mygraph.addNode($("#node_name").val(), 'network')
+              }else{
+                node = mygraph.addNode($("#node_name").val(), 'subdomain')
+              }
+            }else{
+              node = mygraph.addNode($("#node_name").val(), 'organization')
+            }
+            //create a placeholder hash for them in the connections object
+            if((typeof all_connections[$("#node_name").val()]) == 'undefined'){
+              all_connections[$("#node_name").val()] = {}
+            }
+            node_element = $('#' + node.id.toString())
+            //have to escape the . and spaces in the selector for domains so they don't look like css
+            $('#' + node.id.replace(/[!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~]/g, "\\$&") ).attr("fill", "green")
+            $('#' + node.id.replace(/[!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~]/g, "\\$&") ).attr("class", "node selected")
+            $("#node_name").val("Add Node (a)")
+            //need to re-bind every time we add a node so it applies to the new DOM elements
+            bind_node_click()
+          })
+
+          $("#search_field").focusout(function(){
+            $("#search_field").val("Find Node (f)")
+          })
+
+          $("#shodan_api_key").focusout(function(){
+            document.cookie = "shodan_api_key_cookie=" + $("#shodan_api_key").val()
+          })
+
+          $("#linkedin_cookie").focusout(function(){
+            document.cookie = "linkedin_cookie=" + $("#linkedin_cookie").val()
+          })
+
+          $("#hunter_api_key").focusout(function(){
+            document.cookie = "hunter_api_key_cookie=" + $("#hunter_api_key").val()
+          })
+
+          $("#whoxy_api_key").focusout(function(){
+            document.cookie = "whoxy_api_key_cookie=" + $("#whoxy_api_key").val()
+          })
+
+          $("#port_list").focusout(function(){
+            document.cookie = "port_list=" + $("#port_list").val()
+          })
+
+          $("#search_field").keyup(function(){
+            search_string = $("#search_field").val()
+            regex = new RegExp( search_string, 'i' );
+            $(".node").each(function(index){
+              if(regex.test(this.id)){
+                this.attr("fill", "green")
+                this.attr("class", "node selected")
+              }else{
+                this.attr("fill", "black")
+                this.attr("class", "node")
+              }
+            });
+          })
+            
+          $("tr.stat").click(function(){
+            node_type = this.children[1].id.split("_")[0]
+            $(".node").each(function(index){
+              if(mygraph.getNode(this.id).data == node_type){
+                this.attr("fill", "green")
+                this.attr("class", "node selected")
+              }else{
+                this.attr("fill", "black")
+                this.attr("class", "node")
+              }
+            });
+          })
+
+          $(document).keydown(function(e){
+            //select all nodes connected to selected nodes
+            if (e.keyCode==38){
+              $("#select_first_connections").click()
+            }
+          });
+
+          $(document).keypress(function(e){
+            if ($('#node_name').is(':focus')){
+              //let the user type if we are in the node creation field
+              if (e.keyCode==13){
+                $("#node_name").trigger("blur")
+              }
+            }else if ($('#search_field').is(':focus')){
+              //let the user type if we are in the search field
+              if (e.keyCode==13){
+                $("#search_field").trigger("blur")
+              }
+            }else{
+              //select the node input field when the 'a' key is pressed
+              //console.log(e.keyCode)
+              if (e.keyCode==97){
+                $("#node_name").select()
+                setTimeout(function(){$("#node_name").val("")}, 10);
+              }
+              //ASN search 
+              if (e.keyCode==65){
+                $("#asn_search").click()
+              }
+              if (e.keyCode==70 || e.keyCode==102){
+                $("#search_field").select()
+                setTimeout(function(){$("#search_field").val("")}, 10);
+              }
+              //hide stats with 'H'
+              if (e.keyCode==72){
+                if($("#stats_table").is(":hidden")){
+                  $("#stats_table").show()
+                  document.cookie = 'stats_visible=true'
+                }else{
+                  $("#stats_table").hide()
+                  document.cookie = 'stats_visible=false'
+                }
+              }
+              //hide settings with 'h'
+              if (e.keyCode==104){
+                $("#hide_settings").click()
+              }
+              //connect two nodes... if the user goofed then they can press 'c' again to turn it off
+              if (e.keyCode==99){
+                if (link_switch){
+                  $("#connect_nodes").css("background-color", "rgba(0, 255, 0, 0.3)")
+                  link_switch = false;
+                }else{
+                  $("#connect_nodes").click()
+                }
+              }
+              //convert ip range to CIDR node
+              if (e.keyCode==67){
+                $("#convert_to_cidr").click()
+              }
+              //delete a node with the 'd' key
+              if (e.keyCode==100){
+                $("#delete_node").click()
+              }
+              //delete unselected nodes with the 'D' key
+              if (e.keyCode==68){
+                $("#delete_unselected").click()
+              }
+              //undo node deletion with 'u' key
+              if (e.keyCode==117){
+                $("#regenerate_neighbors").click()
+              }
+              //change node type with 'U' key
+              if (e.keyCode==85){
+                $("#change_node_type").click()
+              }
+              //whois lookup with 'w' key
+              if (e.keyCode==119){
+                $("#whois_lookup").click()
+              }
+              //whoxy lookup with 'W' key
+              if (e.keyCode==87){
+                $("#whoxy_search").click()
+              }
+              //mx query with 'm' key
+              if (e.keyCode==109){
+                $("#mx_query").click()
+              }
+              //DNS A record query with 'i' key
+              if (e.keyCode==105){
+                $("#ip_query").click()
+              }
+              //MASS DNS A record query with 'I' key
+              if (e.keyCode==73){
+                mygraph.forEachNode(function(node){
+                  is_target = false
+                  //if YOLO mode
+                  if(!$("#safety_mode").is(":checked")){
+                    is_target = ((node.data == 'network') || (node.data == 'subdomain') || (node.data == 'mail') || (node.data == 'nameserver') || (node.data == 'cidr'))
+                  }else{
+                    is_target = ((node.data == 'network') || (node.data == 'subdomain') || (node.data == 'mail') || (node.data == 'nameserver'))
+                  }
+                  if(is_target){
+                    query_object = {}
+                    query_object.node_id = node.id
+                    query_object.node_type = node.data
+                    socket.emit('ip_lookup', query_object)
+                  }
+                })
+              }
+              //DNS reverse lookup with 'r' key
+              if (e.keyCode==114){
+                $("#reverse_lookup").click()
+              }
+              //MASS DNS reverse lookup with 'R' key
+              if (e.keyCode==82){
+                mygraph.forEachNode(function(node){
+                  is_target = false
+                  //if YOLO mode
+                  if(!$("#safety_mode").is(":checked")){
+                    is_target = ((node.data == 'server') || (node.data == 'cidr'))
+                  }else{
+                    is_target = (node.data == 'server')
+                  }
+                  if(is_target){
+                    query_object = {}
+                    query_object.node_id = node.id
+                    query_object.node_type = node.data
+                    socket.emit('reverse_lookup', query_object)
+                  }
+                })
+              }
+              //DNS TXT records with 't' key
+              if (e.keyCode==116){
+                $("#txt_records").click()
+              }
+              //MASS TXT records with 'T' key
+              if (e.keyCode==84){
+                mygraph.forEachNode(function(node){
+                  if(node.data == 'network'){
+                    socket.emit('txt_records', node.id)
+                  }
+                })
+              }
+              //DNS NS records with 'n' key
+              if (e.keyCode==78 || e.keyCode==110){
+                $("#nameservers").click()
+              }
+              //DoxNS lookup with 'x' key
+              if (e.keyCode==120){
+                $("#dox_ns").click()
+              }
+              //Reverse DoxNS lookup with 'X' key
+              if (e.keyCode==88){
+                $("#reverse_dox_ns").click()
+              }
+              //subdomain lookup with 's' key
+              if (e.keyCode==115){
+                $("#subdomain_lookup").click()
+              }
+              //Crt.sh lookup with 'S' key
+              if (e.keyCode==83){
+                $("#crtsh_lookup").click()
+              }
+              //bruteforce subdomains with 'b' key
+              if (e.keyCode==66 || e.keyCode==98){
+                $("#bruteforce_subdomains").click()
+              }
+              //query shodan with 'q' key
+              if (e.keyCode==81 || e.keyCode==113){
+                $("#query_shodan").click()
+              }
+              //linkedin search with 'l' key
+              if (e.keyCode==108){
+                $("#linkedin_search").click()
+              }
+              //email search with 'M' key
+              if (e.keyCode==77){
+                $("#email_search").click()
+              }
+              //Location search with 'L' key
+              if (e.keyCode==76){
+                $("#location_search").click()
+              }
+              //port scan with 'p' key
+              if (e.keyCode==112){
+                $("#port_scan").click()
+              }
+              //MASS port scan with 'P' key. Let's get crazy!
+              if (e.keyCode==80){
+                if($("#safety_mode").is(":checked")){
+                  alert("Port scans are not allowed in safety mode")
+                }else{
+                  mygraph.forEachNode(function(node){
+                    is_target = (node.data == 'server')
+                    if(is_target){
+                      query_object = {}
+                      query_object.node_id = node.id
+                      query_object.node_type = node.data
+                      query_object.port_list = $("#port_list").val()
+                      socket.emit('port_scan', query_object)
+                    }
+                  })
+                }
+              }
+              //view website with 'v' key
+              if (e.keyCode==118){
+                $("#view_website").click()
+              }
+              //MASS view subdomains with 'V' key
+              if (e.keyCode==86){
+                protocol = prompt("Please enter the protocol to use:\n\nh) HTTP (default)\ns) HTTPS\nf) FTP", "");
+                if(protocol == null){return;}
+                mygraph.forEachNode(function(node){
+                  if(node.data == 'subdomain'){
+                    host = node.id
+                    if(protocol == "s"){
+                      url_string = "https://"+host
+                    }else if(protocol == "f"){
+                      url_string = "ftp://"+host
+                    }else{
+                      url_string = "http://"+host
+                    }
+                    var win = window.open(url_string, '_blank');
+                  }
+                })
+              }
+              //yank contents to clipboard with 'y'
+              if (e.keyCode==89 || e.keyCode==121){
+                $("#copy_node_content").click()
+              }
+              //select nodes based on number of connections with '0-9' key
+              if ((e.keyCode>47)&(e.keyCode<58)){
+                number_of_connections = e.keyCode - 48
+                mygraph.forEachNode(function(node){
+                  mylinks = mygraph.getLinks(node.id)
+                  if((mylinks == null) & (number_of_connections == 0)){
+                    $('#' + node.id.replace(/[!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~]/g, "\\$&") ).attr("fill", "green")
+                    $('#' + node.id.replace(/[!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~]/g, "\\$&") ).attr("class", "node selected")
+                  }else{
+                    try{
+                      if(mylinks.length == number_of_connections){
+                        $('#' + node.id.replace(/[!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~]/g, "\\$&") ).attr("fill", "green")
+                        $('#' + node.id.replace(/[!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~]/g, "\\$&") ).attr("class", "node selected")
+                      }
+                    }catch(err){
+                      console.log(err)
+                    }
+                  }
+                });
+              }
+              //Zone transfer with 'Z' key
+              if (e.keyCode==90){
+                $("#zone_transfer").click()
+              }
+              //export graph object with 'e' key
+              if (e.keyCode==101){
+                $("#export_graph").click()
+              }
+              //export graph to file with 'E' key
+              if (e.keyCode==69){
+                query_object = {}
+                query_object.export_type = "graph"
+                query_object.file_name = prompt("Enter a file base name to export the graph to:","")
+                if(query_object.file_name == null){return;}
+                query_object.graph_object = {}
+                query_object.graph_object.nodes = []
+                query_object.graph_object.links = []
+                mygraph.forEachNode(function(node){
+                  query_object.graph_object.nodes.push({"id": node.id, "type": node.data})
+                });
+                mygraph.forEachLink(function(mylink){
+                  query_object.graph_object.links.push({"from": mylink.fromId, "to": mylink.toId})
+                });
+                socket.emit('export_graph', query_object)
+              }
+              //open scope file with 'o'
+              if (e.keyCode==111){
+                $("#open_file").click()
+              }
+              //open existing graph with 'O'
+              if (e.keyCode==79){
+                $("#open_graph").click()
+              }
+              //generate emails  with 'g'
+              if (e.keyCode==103){
+                $("#generate_emails").click()
+              }
+              //generate phishmonger target csv with 'G'
+              if (e.keyCode==71){
+                $("#generate_targets").click()
+              }
+            }
+          });
+
+          function bind_node_click(){
+            $(".node").on("click", function(){
+              if(link_switch){
+                selected = $(".selected")[0].id
+                mygraph.addLink(selected, this.id)
+                all_connections[selected][this.id] = mygraph.getNode(this.id).data
+                all_connections[this.id][selected] = mygraph.getNode(selected).data
+                $("#connect_nodes").css("background-color", "rgba(0, 255, 0, 0.3)")
+                link_switch = false;
+              }else{
+                $(".node").attr("fill", "black")
+                $(".node").attr("class", "node")
+                this.attr("fill", "green")
+                this.attr("class", "node selected")
+              }
+            })
+          }
+
+          $("#connect_nodes").click(function(){
+            $("#connect_nodes").css("background-color", "Aqua")
+            $("#connect_nodes").trigger("blur")
+            //flip the semaphore
+            link_switch = true;
+          })
+
+          $("#hide_settings").click(function(){
+            if($("#settings").is(":hidden")){
+              $("#settings").show()
+              document.cookie = 'settings_visible=true'
+            }else{
+              $("#settings").hide()
+              document.cookie = 'settings_visible=false'
+            }
+          })
+
+          $("#delete_unselected").click(function(){
+            selected = $(".node:not(.selected)").each(function(index){
+              mygraph.removeNode(this.id)
+            });
+            $("#delete_unselected").trigger("blur")
+          })
+
+          $("#delete_node").click(function(){
+            selected = $(".selected").each(function(index){
+              mygraph.removeNode(this.id)
+            });
+            $("#delete_node").trigger("blur")
+          })
+
+          $("#regenerate_neighbors").click(function(){
+            selected = $(".selected").each(function(index){
+              for (var key in all_connections[this.id]){
+                new_node = {"id": key, "node_type":all_connections[this.id][key], "parent": this.id}
+                add_node(new_node)
+              }
+            });
+            $("#regenerate_neighbors").trigger("blur")
+          })
+
+          $("#change_node_type").click(function(){
+            selected = $(".selected")[0].id
+            var new_type = prompt("Please enter a node type:\n\ni) ip/server\nn) network/domain\ns) subdomain\nc) CIDR Range\no) organization\np) Person", "");
+            if(new_type == null){return;}
+            if(new_type == "i"){
+              type_string = "server"
+            }else if(new_type == "n"){
+              type_string = "network"
+            }else if(new_type == "s"){
+              type_string = "subdomain"
+            }else if(new_type == "c"){
+              type_string = "cidr"
+            }else if(new_type == "o"){
+              type_string = "organization"
+            }else if(new_type == "p"){
+              type_string = "person"
+            }else{
+              //otherwise change it to itself
+              type_string = mygraph.getNode($(".selected")[0].id).data
+            }
+            //mod the data on the node
+            mygraph.getNode($(".selected")[0].id).data = type_string
+            //mod the actual ui image
+            svg_image = $(".selected").next()[0].href
+            svg_image.animVal = './images/' + type_string
+            svg_image.baseVal = './images/' + type_string
+            $("#change_node_type").trigger("blur")
+          })
+
+          $("#whois_lookup").click(function(){
+            selected = $(".selected").each(function(index){
+              socket.emit('whois_lookup', this.id)
+            });
+            $("#whois_lookup").trigger("blur")
+          })
+
+          $("#whoxy_search").click(function(){
+            node_type = mygraph.getNode($(".selected")[0].id).data
+            if(!(node_type.match(/^(organization|email|network)$/))){
+              alert("Whoxy search must be performed on an organization or email node. Don't waste valuable API calls!")
+            }else{
+              query_object = {}
+              let selection = prompt("Select a search method:\na) Company (sase sensitive)(default)\nb) Email\nc) Keyword (match start of domain name)")
+              if(selection == 'b'){
+                query_object.search_method = 'email'
+              }else if(selection == 'c'){
+                query_object.search_method = 'keyword'
+              }else{
+                query_object.search_method = 'organization'
+              }
+              let page_number = prompt("Results Page Number (default 1)")
+              if(page_number == ''){
+                page_number = 1
+              }
+              query_object.page_number = page_number
+              query_object.node_id = $(".selected")[0].id
+              query_object.whoxy_api_key = $("#whoxy_api_key").val()
+              socket.emit('whoxy_search', query_object)
+              $("#whoxy_search").trigger("blur")
+            }
+          })
+
+          $("#mx_query").click(function(){
+            selected = $(".selected").each(function(index){
+              socket.emit('mx_query', this.id)
+            });
+            $("#mx_query").trigger("blur")
+          })
+
+          $("#ip_query").click(function(){
+            selected = $(".selected").each(function(index){
+              if(($("#safety_mode").is(":checked")) && (mygraph.getNode(this.id).data == 'cidr')){
+                alert("Ping sweeps are not allowed in safety mode")
+              }else{
+                query_object = {}
+                query_object.node_id = this.id
+                query_object.node_type = mygraph.getNode(this.id).data
+                socket.emit('ip_lookup', query_object)
+              }
+            });
+            $("#ip_query").trigger("blur")
+          })
+
+          $("#reverse_lookup").click(function(){
+            selected = $(".selected").each(function(index){
+              query_object = {}
+              query_object.node_id = this.id
+              query_object.node_type = mygraph.getNode(this.id).data
+              socket.emit('reverse_lookup', query_object)
+            });
+            $("#reverse_lookup").trigger("blur")
+          })
+
+          $("#txt_records").click(function(){
+            selected = $(".selected").each(function(index){
+              socket.emit('txt_records', this.id)
+            });
+            $("#txt_records").trigger("blur")
+          })
+
+          $("#nameservers").click(function(){
+            selected = $(".selected").each(function(index){
+              socket.emit('nameservers', this.id)
+            });
+            $("#nameservers").trigger("blur")
+          })
+
+          $("#asn_search").click(function(){
+            selected = $(".selected").each(function(index){
+              query_object = {}
+              query_object.node_id = this.id
+              query_object.node_type = mygraph.getNode(this.id).data
+              socket.emit('asn_search', query_object)
+            });
+            $("#asn_search").trigger("blur")
+          })
+
+          $("#dox_ns").click(function(){
+            selected = $(".selected").each(function(index){
+              socket.emit('dox_ns', this.id)
+            });
+            $("#dox_ns").trigger("blur")
+          })
+
+          $("#reverse_dox_ns").click(function(){
+            selected = $(".selected").each(function(index){
+              socket.emit('reverse_dox_ns', this.id)
+            });
+            $("#reverse_dox_ns").trigger("blur")
+          })
+
+          $("#subdomain_lookup").click(function(){
+            selected = $(".selected")[0].id
+            socket.emit('subdomain_lookup', selected)
+            $("#subdomain_lookup").trigger("blur")
+          })
+
+          $("#crtsh_lookup").click(function(){
+            selected = $(".selected")[0].id
+            socket.emit('crtsh_lookup', selected)
+            $("#crtsh_lookup").trigger("blur")
+          })
+
+          $("#bruteforce_subdomains").click(function(){
+            selected = $(".selected")[0].id
+            socket.emit('bruteforce_subdomains', selected)
+            $("#bruteforce_subdomains").trigger("blur")
+          })
+
+          $("#linkedin_search").click(function(){
+            query_object = {}
+            query_object.node_id = $(".selected")[0].id
+            query_object.linkedin_cookie = $("#linkedin_cookie").val()
+            query_object.org_id = prompt("Please enter the LinkedIn Org ID", "");
+            if(query_object.org_id == null){return;}
+            query_object.start_page = prompt("Please enter the pages number to start mining on:", "");
+            if(query_object.start_page == null){return;}
+            query_object.end_page = prompt("Please enter the page number to stop mining on:", "");
+            if(query_object.end_page == null){return;}
+            socket.emit('linkedin_search', query_object)
+            $("#linkedin_search").trigger("blur")
+          })
+
+          $("#email_search").click(function(){
+            node_type = mygraph.getNode($(".selected")[0].id).data
+            if(node_type != 'network'){
+              alert("Email search must be performed on a 'domain/network' node. Don't waste valuable API calls!")
+            }else{
+              query_object = {}
+              query_object.node_id = $(".selected")[0].id
+              query_object.hunter_api_key = $("#hunter_api_key").val()
+              socket.emit('email_search', query_object)
+              $("#email_search").trigger("blur")
+            }
+          })
+
+          $("#port_scan").click(function(){
+            if($("#safety_mode").is(":checked")){
+              alert("Port scans are not allowed in safety mode")
+            }else{
+              selected = $(".selected").each(function(index){
+                query_object = {}
+                query_object.node_id = this.id
+                query_object.node_type = mygraph.getNode(this.id).data
+                query_object.port_list = $("#port_list").val()
+                socket.emit('port_scan', query_object)
+              });
+            }
+            $("#port_scan").trigger("blur")
+          })
+
+          $("#query_shodan").click(function(){
+            query_object = {}
+            query_object.node_id = $(".selected")[0].id
+            query_object.node_type = mygraph.getNode($(".selected")[0].id).data
+            query_object.api_key = $("#shodan_api_key").val()
+            socket.emit('query_shodan', query_object)
+            $("#query_shodan").trigger("blur")
+          })
+
+          $("#copy_node_content").click(function(){
+            export_list = ""
+            selected = $(".selected").each(function(index){
+              if(index == 0){
+                export_list += this.id
+              }else{
+                export_list += "\n" + this.id
+              }
+            });
+            copy_to_clipboard(export_list)
+            $("#copy_node_content").trigger("blur")
+          })
+            
+          $("#select_first_connections").click(function(){
+            selected = $(".selected").each(function(index){
+              $(mygraph.getLinks(this.id)).each(function(connection){
+                $('#' + this.toId.replace(/[!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~ ]/g, "\\$&") ).attr("fill", "green")
+                $('#' + this.toId.replace(/[!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~ ]/g, "\\$&") ).attr("class", "node selected")
+                $('#' + this.fromId.replace(/[!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~ ]/g, "\\$&") ).attr("fill", "green")
+                $('#' + this.fromId.replace(/[!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~ ]/g, "\\$&") ).attr("class", "node selected")
+              });
+            });
+            $("#select_first_connections").trigger("blur")
+          })
+            
+          $("#export_graph").click(function(){
+            query_object = {}
+            query_object.export_list = ""
+            query_object.export_type = "list"
+            query_object.file_name = prompt("Enter a file name to save the list of selected nodes:","")
+            if(query_object.file_name == null){return;}
+            if(query_object.file_name.indexOf("finding") !== -1){
+              selected = $(".selected").each(function(index){
+                pieces = this.id.split(":")
+                query_object.export_list += pieces[0] + "\t" + pieces[0] + "\ttcp\t" + pieces[1] + "\n"
+              });
+            }else{
+              selected = $(".selected").each(function(index){
+                query_object.export_list += this.id + "\n"
+              });
+            }
+            socket.emit('export_graph', query_object)
+            $("#export_graph").trigger("blur")
+          })
+
+          $("#open_file").click(function(){
+            $("#open_file").trigger("blur")
+            query_object = {}
+            query_object.file_path = prompt("Please enter the graph file path:", "");
+            query_object.parent_node = $(".selected")[0].id
+            if(query_object.file_path == null){return;}
+            socket.emit('open_file', query_object)
+          })
+
+          $("#open_graph").click(function(){
+            $("#open_graph").trigger("blur")
+            graph_path = prompt("Please enter the graph file path:", "");
+            if(graph_path == null){return;}
+            socket.emit('open_graph', graph_path)
+          })
+
+          $("#hunter_api_check").click(function(){
+            hunter_api_key = $("#hunter_api_key").val()
+            socket.emit('hunter_api_check', hunter_api_key)
+          })
+
+          $("#whoxy_api_check").click(function(){
+            whoxy_api_key = $("#whoxy_api_key").val()
+            socket.emit('whoxy_api_check', whoxy_api_key)
+          })
+
+          $("#generate_emails").click(function(){
+            email_format = prompt("Please select an email format:\na) john.smith (default)\nb) jsmith\nc) johns\nd) john\ne) j.smith\nf) john.s\ng) smithj","")
+            if(email_format == null){return;}
+            domain = prompt("Please enter the domain name:","")
+            if(domain !== ''){
+              domain = '@' + domain
+            }
+            $(".node").each(function(index){
+              if(mygraph.getNode(this.id).data == "person"){
+                name = this.id.split(',')[0]
+                first_name = name.split(' ')[0]
+                last_name = name.split(' ')[name.split(' ').length - 1]
+                if(email_format == 'b'){
+                  email_address = first_name[0] + last_name + domain
+                }else if(email_format == 'c'){
+                  email_address = first_name + last_name[0] + domain
+                }else if(email_format == 'd'){
+                  email_address = first_name + domain
+                }else if(email_format == 'e'){
+                  email_address = first_name[0] + '.' + last_name + domain
+                }else if(email_format == 'f'){
+                  email_address = first_name + '.' + last_name[0] + domain
+                }else if(email_format == 'g'){
+                  email_address = last_name + first_name[0] + domain
+                }else{
+                  email_address = first_name + '.' + last_name + domain
+                }
+                new_node = mygraph.addNode(email_address, 'email')
+                //only add connections placeholder if the node didn't exist
+                if((typeof all_connections[email_address]) == 'undefined'){
+                  all_connections[email_address] = {}
+                }
+                //only make the link if it doesn't exist yet
+                if((mygraph.getLink(email_address, this.id) == null) && (mygraph.getLink(this.id, email_address) == null)){
+                  mygraph.addLink(email_address, this.id)
+                  all_connections[email_address][this.id] = 'person'
+                  all_connections[this.id][email_address] = 'email'
+                }
+                bind_node_click()
+              }
+            });
+          })
+
+          $("#generate_targets").click(function(){
+            let output = ""
+            $(".node").each(function(index){
+              if(mygraph.getNode(this.id).data == "email"){
+                let email = this.id
+                let first_name = ''
+                let last_name = ''
+                let position = ''
+                let custom = ''
+                $.each(all_connections[this.id], function(key,val){
+                  if(val == 'person'){
+                    let name_hash = key.split(' ')
+                    first_name = name_hash.shift().replace(/,/g,'')
+                    last_name = name_hash.join(' ').replace(/,/g,'')
+                    //grap position in the case of a linkedin mined account
+                    $.each(all_connections[key], function(key2,val2){
+                      if(val2 == 'position'){
+                        position = key2.replace(/,/g,'')
+                      }
+                    })
+                  }else if(val == 'position'){
+                    position = key.replace(/,/g,'')
+                  }else if(val == 'phone'){
+                    custom = key.replace(/,/g,'')
+                  }
+                })
+                output += (`${this.id},${first_name},${last_name},${position},${custom}\n`)
+              }
+            });
+            copy_to_clipboard(output)
+            alert("Phishmonger Targets .csv Copied to Clipboard")
+          })
+
+          $("#convert_to_cidr").click(function(){
+            selected = $(".selected").each(function(index){
+              socket.emit('convert_to_cidr', this.id)
+            });
+            $("#convert_to_cidr").trigger("blur")
+          })
+
+          $("#location_search").click(function(){
+            selected = $(".selected").each(function(index){
+              socket.emit('location_search', this.id)
+            });
+            $("#location_search").trigger("blur")
+          })
+
+          $("#zone_transfer").click(function(){
+            selected = $(".selected").each(function(index){
+              socket.emit('zone_transfer', this.id)
+            });
+            $("#zone_transfer").trigger("blur")
+          })
+
+          $("#view_website").click(function(){
+            selected = $(".selected").each(function(index){
+              if(mygraph.getNode(this.id).data == "location"){
+                url_string = "https://www.google.com/maps?q=" + this.id.split(":")[0] + "," + this.id.split(":")[1]
+                var win = window.open(url_string, '_blank');
+                return
+              }else if(mygraph.getNode(this.id).data == "info"){
+                try{
+                  url_regex = new RegExp('(https?://.+)','i')
+                  url_string = url_regex.exec(this.id)[1]
+                  var win = window.open(url_string, '_blank');
+                  return
+                }catch(err){
+                  return
+                }
+              }else{
+                host = this.id
+                if(host.match(/:80/)){
+                  url_string = "http://"+host
+                }else{
+                  url_string = "https://"+host
+                }
+              }
+              var win = window.open(url_string, '_blank');
+            });
+            $("#view_website").trigger("blur")
+          })
+
+          get_stats = function(){
+            stats = {"cidr": 0, "email": 0, "info": 0, "linkedin": 0, "mail": 0, "nameserver": 0, "network": 0, "organization": 0, "person": 0, "port": 0, "position": 0, "server": 0, "subdomain": 0, "txt": 0, "location": 0, "phone": 0}
+            mygraph.forEachNode(function(node){
+              stats[node.data] += 1
+            })
+            $.each(stats, function(stat){
+              $("#"+stat+"_tally").text(stats[stat])
+            });
+          }
+
+          //call this function every 10 seconds
+          setInterval(function(){ get_stats(); }, 10000);
+
+          $("#safety_mode").change(function(){
+            safety_mode = $("#safety_mode").is(":checked")
+            if(safety_mode){
+              $("#safety_label").text('"Safety" Mode ON')
+            }else{
+              $("#safety_label").text('"Safety" Mode OFF! Be Careful!')
+            }
+          })
+
+          add_node = function(node){
+            //hack a way to avoid undefined nodes
+            var regex1 = RegExp('undefined*');
+            if (! regex1.test(node.id)){
+              if(node.id == ""){
+                return;
+              }
+              //only add node if it doesn't exist
+              if((typeof mygraph.getNode(node.id)) == 'undefined'){
+                new_node = mygraph.addNode(node.id, node.node_type)
+                //add a connections placeholder for it
+                if((typeof all_connections[node.id]) == 'undefined'){
+                  all_connections[node.id] = {}
+                }
+              }
+              //only make the link if it doesn't exist yet
+              if((mygraph.getLink(node.id, node.parent) == null) && (mygraph.getLink(node.parent, node.id) == null)){
+                mygraph.addLink(node.id, node.parent)
+                all_connections[node.parent][node.id] = node.node_type
+                all_connections[node.id][node.parent] = mygraph.getNode(node.parent).data
+              }
+              bind_node_click()
+            }
+          }
+
+          var socket = io();
+
+          socket.on('add_node', function(node){
+            add_node(node)
+          });
+
+          socket.on('import_node', function(node){
+            //add node without assumption of parent node
+            if((typeof mygraph.getNode(node.id)) == 'undefined'){
+              new_node = mygraph.addNode(node.id, node.type)
+              if((typeof all_connections[node.id]) == 'undefined'){
+                all_connections[node.id] = {}
+              }
+              bind_node_click()
+            }
+          });
+
+          socket.on('import_link', function(mylink){
+            //only make the link if it doesn't exist yet
+            if((mygraph.getLink(mylink.from, mylink.to) == null) && (mygraph.getLink(mylink.to, mylink.from) == null)){
+              mygraph.addLink(mylink.from, mylink.to)
+              all_connections[mylink.from][mylink.to] = mygraph.getNode(mylink.to).data
+              all_connections[mylink.to][mylink.from] = mygraph.getNode(mylink.from).data
+            }
+            bind_node_click()
+          });
+
+          socket.on('server_message', function(message){
+            alert(message)
+          });
+
+          $("#web_ports").click(function(){
+            $("#port_list").val('80,280,443,500,591,593,832,981,2000,2480,3000,4000,4444,4445,4567,5000,5104,5800,5985,5986,6000,7000,7002,8000,8001,8002,8008,8042,8080,8088,8222,8243,8280,8281,8443,8448,8530,8531,8887,8888,9000,9001,9443,9981,10000,11000,11371,12000,12043,12046,12443,13000,16080,18091,18092')
+          })
+
+          $("#top_25").click(function(){
+            $("#port_list").val('21-23,25,53,80,110-111,135,139,143,199,443,445,587,993,995,1025,1720,1723,3306,3389,5900,8080,8888')
+          })
+
+          $("#top_100").click(function(){
+            $("#port_list").val('7,9,13,21-23,25-26,37,53,79-81,88,106,110-111,113,119,135,139,143-144,179,199,389,427,443-445,465,513-515,543-544,548,554,587,631,646,873,990,993,995,1025-1029,1110,1433,1720,1723,1755,1900,2000-2001,2049,2121,2717,3000,3128,3306,3389,3986,4899,5000,5009,5051,5060,5101,5190,5357,5432,5631,5666,5800,5900,6000-6001,6646,7070,8000,8008-8009,8080-8081,8443,8888,9100,9999-10000,32768,49152-49157')
+          })
+
+          $("#top_500").click(function(){
+            $("#port_list").val('1,3-4,6-7,9,13,17,19-26,30,33,37,42,49,53,79-83,85,88,90,100,106,110-111,113,119,135,139,143-144,146,161,163,179,199,211,222,254-255,264,280,306,311,340,366,389,407,427,443-445,464-465,497,500,512-515,541,543-544,548,554,563,587,593,625,631,636,646,648,705,711,787,800,808,873,880,888,900-902,912,987,990,992-993,995,999-1000,1002,1022-1075,1077-1083,1085-1086,1088,1093-1094,1096-1100,1104,1106-1108,1110-1111,1148,1169,1218,1234,1248,1272,1310-1311,1352,1433,1494,1500-1501,1503,1521,1666,1687,1700,1717-1718,1720,1723,1755,1761,1783,1801,1840,1863-1864,1900,1935,1947,1998,2000-2010,2030,2049,2065,2100,2103,2105,2107,2119,2121,2135,2144,2160-2161,2190,2222,2260,2301,2381,2383,2399,2401,2492,2500,2525,2601-2602,2604-2605,2607,2701-2702,2717-2718,2809,2811,2869,2875,2967,3000-3001,3005,3017,3031,3052,3071,3128,3211,3260,3268-3269,3283,3300-3301,3306,3323,3325,3333,3351,3367,3389,3404,3476,3551,3580,3659,3689-3690,3703,3766,3784,3801,3827,3986,3998,4000-4003,4045,4126,4129,4242,4443-4444,4449,4662,4899,5000-5004,5009,5030,5050-5051,5060,5100-5102,5120,5190,5214,5222,5225-5226,5269,5357,5414,5431-5432,5500,5550,5555,5566,5631,5633,5666,5679,5718,5800-5801,5810,5825,5877,5900-5902,5910-5911,5925,5959-5962,5987-5989,6000-6002,6004-6005,6059,6101,6112,6123,6129,6156,6389,6543,6580,6646,6666-6667,6788-6789,6881,6901,6969,7000-7001,7019,7070,7100,7106,7200,7625,7627,7741,7777-7778,7911,7937-7938,8000-8002,8007-8010,8021,8031,8080-8089,8181,8192-8194,8222,8291,8333,8400,8402,8443,8600,8649,8651-8652,8701,8873,8888,8899,8994,9000-9002,9009,9050,9071,9090,9100-9102,9207,9415,9535,9593-9595,9876,9999-10001,10010,10243,12000,12345,13782-13783,14238,15000,16992-16993,20005,20828,23502,27000,32768-32775,33354,35500,42510,45100,49152-49157,49999-50001,51103,52822,52869,55555,55600,64623,64680,65000,65389')
+          })
+
+          $("#top_1000").click(function(){
+            $("#port_list").val('1,3-4,6-7,9,13,17,19-26,30,32-33,37,42-43,49,53,70,79-85,88-90,99-100,106,109-111,113,119,125,135,139,143-144,146,161,163,179,199,211-212,222,254-256,259,264,280,301,306,311,340,366,389,406-407,416-417,425,427,443-445,458,464-465,481,497,500,512-515,524,541,543-545,548,554-555,563,587,593,616-617,625,631,636,646,648,666-668,683,687,691,700,705,711,714,720,722,726,749,765,777,783,787,800-801,808,843,873,880,888,898,900-903,911-912,981,987,990,992-993,995,999-1002,1007,1009-1011,1021-1100,1102,1104-1108,1110-1114,1117,1119,1121-1124,1126,1130-1132,1137-1138,1141,1145,1147-1149,1151-1152,1154,1163-1166,1169,1174-1175,1183,1185-1187,1192,1198-1199,1201,1213,1216-1218,1233-1234,1236,1244,1247-1248,1259,1271-1272,1277,1287,1296,1300-1301,1309-1311,1322,1328,1334,1352,1417,1433-1434,1443,1455,1461,1494,1500-1501,1503,1521,1524,1533,1556,1580,1583,1594,1600,1641,1658,1666,1687-1688,1700,1717-1721,1723,1755,1761,1782-1783,1801,1805,1812,1839-1840,1862-1864,1875,1900,1914,1935,1947,1971-1972,1974,1984,1998-2010,2013,2020-2022,2030,2033-2035,2038,2040-2043,2045-2049,2065,2068,2099-2100,2103,2105-2107,2111,2119,2121,2126,2135,2144,2160-2161,2170,2179,2190-2191,2196,2200,2222,2251,2260,2288,2301,2323,2366,2381-2383,2393-2394,2399,2401,2492,2500,2522,2525,2557,2601-2602,2604-2605,2607-2608,2638,2701-2702,2710,2717-2718,2725,2800,2809,2811,2869,2875,2909-2910,2920,2967-2968,2998,3000-3001,3003,3005-3007,3011,3013,3017,3030-3031,3052,3071,3077,3128,3168,3211,3221,3260-3261,3268-3269,3283,3300-3301,3306,3322-3325,3333,3351,3367,3369-3372,3389-3390,3404,3476,3493,3517,3527,3546,3551,3580,3659,3689-3690,3703,3737,3766,3784,3800-3801,3809,3814,3826-3828,3851,3869,3871,3878,3880,3889,3905,3914,3918,3920,3945,3971,3986,3995,3998,4000-4006,4045,4111,4125-4126,4129,4224,4242,4279,4321,4343,4443-4446,4449,4550,4567,4662,4848,4899-4900,4998,5000-5004,5009,5030,5033,5050-5051,5054,5060-5061,5080,5087,5100-5102,5120,5190,5200,5214,5221-5222,5225-5226,5269,5280,5298,5357,5405,5414,5431-5432,5440,5500,5510,5544,5550,5555,5560,5566,5631,5633,5666,5678-5679,5718,5730,5800-5802,5810-5811,5815,5822,5825,5850,5859,5862,5877,5900-5904,5906-5907,5910-5911,5915,5922,5925,5950,5952,5959-5963,5987-5989,5998-6007,6009,6025,6059,6100-6101,6106,6112,6123,6129,6156,6346,6389,6502,6510,6543,6547,6565-6567,6580,6646,6666-6669,6689,6692,6699,6779,6788-6789,6792,6839,6881,6901,6969,7000-7002,7004,7007,7019,7025,7070,7100,7103,7106,7200-7201,7402,7435,7443,7496,7512,7625,7627,7676,7741,7777-7778,7800,7911,7920-7921,7937-7938,7999-8002,8007-8011,8021-8022,8031,8042,8045,8080-8090,8093,8099-8100,8180-8181,8192-8194,8200,8222,8254,8290-8292,8300,8333,8383,8400,8402,8443,8500,8600,8649,8651-8652,8654,8701,8800,8873,8888,8899,8994,9000-9003,9009-9011,9040,9050,9071,9080-9081,9090-9091,9099-9103,9110-9111,9200,9207,9220,9290,9415,9418,9485,9500,9502-9503,9535,9575,9593-9595,9618,9666,9876-9878,9898,9900,9917,9929,9943-9944,9968,9998-10004,10009-10010,10012,10024-10025,10082,10180,10215,10243,10566,10616-10617,10621,10626,10628-10629,10778,11110-11111,11967,12000,12174,12265,12345,13456,13722,13782-13783,14000,14238,14441-14442,15000,15002-15004,15660,15742,16000-16001,16012,16016,16018,16080,16113,16992-16993,17877,17988,18040,18101,18988,19101,19283,19315,19350,19780,19801,19842,20000,20005,20031,20221-20222,20828,21571,22939,23502,24444,24800,25734-25735,26214,27000,27352-27353,27355-27356,27715,28201,30000,30718,30951,31038,31337,32768-32785,33354,33899,34571-34573,35500,38292,40193,40911,41511,42510,44176,44442-44443,44501,45100,48080,49152-49161,49163,49165,49167,49175-49176,49400,49999-50003,50006,50300,50389,50500,50636,50800,51103,51493,52673,52822,52848,52869,54045,54328,55055-55056,55555,55600,56737-56738,57294,57797,58080,60020,60443,61532,61900,62078,63331,64623,64680,65000,65129,65389')
+          })
+         
+          copy_to_clipboard = function(data){
+            // Create a dummy input to copy the string inside it
+            var dummy = document.createElement("textarea");
+            // Add it to the document
+            document.body.appendChild(dummy);
+            // Set its ID
+            dummy.setAttribute("id", "dummy_id");
+            // Output the array into it
+            document.getElementById("dummy_id").value=data;
+            // Select it
+            dummy.select();
+            // Copy its contents
+            document.execCommand("copy");
+            // Remove it as its not needed anymore
+            document.body.removeChild(dummy);
+          }
+
+        })
+    </script>
+
+    <style type="text/css" media="screen">
+        html, body, svg { width: 100%; height: 100%;}
+    </style>
+</head>
+<body onload='mygraph=main()'>
+<input id="node_name" type="text" value="Add Node (a)" />
+<span>Ports:</span><input id="port_list" type="text" value="21,22,23,25,80,139,137,443,3389,8443,8080" />
+<button id="top_25">top 25</button>
+<button id="top_100">top 100</button>
+<button id="top_500">top 500</button>
+<button id="top_1000">top 1000</button>
+<button id="web_ports">web ports</button>
+<label class="switch">
+  <input id="safety_mode" type="checkbox" checked>
+  <span class="slider round"></span>
+</label><span id="safety_label">"Safety" Mode ON</span>
+<input id="search_field" type="text" value="Find Node (f)" style="position:absolute;right:0px;" />
+<div id="settings" style="position:absolute;left:0px;top:30px;">
+  <span>shodan key:</span><input id="shodan_api_key" type="password" value="Shodan api key here" />
+  <br>
+  <span>li_at cookie:</span><input id="linkedin_cookie" type="password" value="LinkedIn li_at cookie here" />
+  <br>
+  <span>hunter.io key:</span><input id="hunter_api_key" type="password" value="Hunter.io api key here" /><button id="hunter_api_check">Status</button>
+  <br>
+  <span>Whoxy key:</span><input id="whoxy_api_key" type="password" value="Whoxy.com api key here" /><button id="whoxy_api_check">Status</button>
+  <table id="options_table">
+    <tr class="control benign" id="hide_settings"><td>Hide Settings</td><td>(h)(H)</td></tr>
+    <tr ><td><b>Graph Operations:</b></td><td></td></tr>
+    <tr class="control benign" id="connect_nodes"><td>Connect Nodes</td><td>(c)</td></tr>
+    <tr class="control benign" id="copy_node_content"><td>Copy Nodes to Clipboard</td><td>(y)</td></tr>
+    <tr class="control benign" id="select_first_connections"><td>Select First Connections</td><td>(UP Arrow)</td></tr>
+    <tr class="control benign" id="export_graph"><td>Export Nodes/Graph</td><td>(e)(E)</td></tr>
+    <tr class="control benign" id="select_orphans"><td>Select nodes based on # of connections</td><td>(0-9)</td></tr>
+    <tr class="control ratelimit" id="open_file"><td>Open Scope File</td><td>(o)</td></tr>
+    <tr class="control ratelimit" id="open_graph"><td>Open Graph</td><td>(O)</td></tr>
+    <tr class="control ratelimit" id="regenerate_neighbors"><td>Bring Back Deleted First Connections</td><td>(u)</td></tr>
+    <tr class="control warning" id="delete_node"><td>Delete Nodes</td><td>(d)</td></tr>
+    <tr class="control warning" id="delete_unselected"><td>Delete Unselected Nodes</td><td>(D)</td></tr>
+    <tr class="control warning" id="change_node_type"><td>Change Node Type</td><td>(U)</td></tr>
+    <tr ><td><b>Node Creation:</b></td><td></td></tr>
+    <tr class="control benign" id="whois_lookup"><td>Whois Lookup</td><td>(w)</td></tr>
+    <tr class="control ratelimit" id="whoxy_search"><td>Whoxy Reverse Whois Lookup</td><td>(W)</td></tr>
+    <tr class="control benign" id="mx_query"><td>MX Query</td><td>(m)</td></tr>
+    <tr class="control benign" id="reverse_lookup"><td>Reverse DNS Lookup</td><td>(r)(R)</td></tr>
+    <tr class="control benign" id="txt_records"><td>TXT Records</td><td>(t)(T)</td></tr>
+    <tr class="control benign" id="nameservers"><td>Name Servers</td><td>(n)</td></tr>
+    <tr class="control benign" id="generate_emails"><td>Generate Emails</td><td>(g)</td></tr>
+    <tr class="control benign" id="generate_targets"><td>Generate Phishmonger Target CSV</td><td>(G)</td></tr>
+    <tr class="control benign" id="convert_to_cidr"><td>Convert IP Range to CIDR Node</td><td>(C)</td></tr>
+    <tr class="control benign" id="view_website"><td>View Website in New Tab</td><td>(v)(V)</td></tr>
+    <tr class="control benign" id="asn_search"><td>ASN Search</td><td>(A)</td></tr>
+    <tr class="control benign" id="dox_ns"><td>DoxNS Lookup</td><td>(x)</td></tr>
+    <tr class="control benign" id="reverse_dox_ns"><td>Reverse DoxNS Lookup</td><td>(X)</td></tr>
+    <tr class="control ratelimit" id="ip_query"><td>IP DNS Query/Ping Sweep CIDR</td><td>(i)(I)</td></tr>
+    <tr class="control ratelimit" id="subdomain_lookup"><td>Subdomain Lookup (limit 100 queries/day)</td><td>(s)</td></tr>
+    <tr class="control ratelimit" id="crtsh_lookup"><td>CRT.SH Subdomain Lookup (unknown limit)</td><td>(S)</td></tr>
+    <tr class="control ratelimit" id="query_shodan"><td>Query Shodan (rate limit 1 per second)</td><td>(q)</td></tr>
+    <tr class="control ratelimit" id="linkedin_search"><td>LinkedIn Search (deactivation risk, DO NOT THREAD!)</td><td>(l)</td></tr>
+    <tr class="control ratelimit" id="email_search"><td>Email Search (limit 50 queries/month)</td><td>(M)</td></tr>
+    <tr class="control ratelimit" id="location_search"><td>Location Search (general rate limit)</td><td>(L)</td></tr>
+    <tr class="control ratelimit" id="zone_transfer"><td>DNS Zone Transfer</td><td>(Z)</td></tr>
+    <tr class="control warning" id="bruteforce_subdomains"><td>Bruteforce Subdomains (interacts with client servers)</td><td>(b)</td></tr>
+    <tr class="control warning" id="port_scan"><td>Port Scan/Port Scan ALL IPs</td><td>(p)(P)</td></tr>
+  </table>
+</div>
+<table id="stats_table" style="position:absolute;right:5px;top:30px;">
+  <tr class="stat">
+    <td><image width="15" height="15" src="/images/network"></image>  Domains:</td>
+    <td id="network_tally">0</td>
+  </tr>
+  <tr class="stat">
+    <td><image width="15" height="15" src="/images/subdomain"></image>  Subdomains:</td>
+    <td id="subdomain_tally">0</td>
+  </tr>
+  <tr class="stat">
+    <td><image width="15" height="15" src="/images/cidr"></image>  Ranges:</td>
+    <td id="cidr_tally">0</td>
+  </tr>
+  <tr class="stat">
+    <td><image width="15" height="15" src="/images/server"></image>  Hosts:</td>
+    <td id="server_tally">0</td>
+  </tr>
+  <tr class="stat">
+    <td><image width="15" height="15" src="/images/nameserver"></image>  Name Servers:</td>
+    <td id="nameserver_tally">0</td>
+  </tr>
+  <tr class="stat">
+    <td><image width="15" height="15" src="/images/mail"></image>  Mail Servers:</td>
+    <td id="mail_tally">0</td>
+  </tr>
+  <tr class="stat">
+    <td><image width="15" height="15" src="/images/port"></image>  Ports:</td>
+    <td id="port_tally">0</td>
+  </tr>
+  <tr class="stat">
+    <td><image width="15" height="15" src="/images/organization"></image>  Organizations:</td>
+    <td id="organization_tally">0</td>
+  </tr>
+  <tr class="stat">
+    <td><image width="15" height="15" src="/images/linkedin"></image>  LinkedIn Pages:</td>
+    <td id="linkedin_tally">0</td>
+  </tr>
+  <tr class="stat">
+    <td><image width="15" height="15" src="/images/person"></image>  Employees:</td>
+    <td id="person_tally">0</td>
+  </tr>
+  <tr class="stat">
+    <td><image width="15" height="15" src="/images/position"></image>  Positions:</td>
+    <td id="position_tally">0</td>
+  </tr>
+  <tr class="stat">
+    <td><image width="15" height="15" src="/images/email"></image>  Emails:</td>
+    <td id="email_tally">0</td>
+  </tr>
+  <tr class="stat">
+    <td><image width="15" height="15" src="/images/txt"></image>  Text Records:</td>
+    <td id="txt_tally">0</td>
+  </tr>
+  <tr class="stat">
+    <td><image width="15" height="15" src="/images/location"></image>  Locations:</td>
+    <td id="location_tally">0</td>
+  </tr>
+  <tr class="stat">
+    <td><image width="15" height="15" src="/images/phone"></image>  Phone Numbers:</td>
+    <td id="phone_tally">0</td>
+  </tr>
+  <tr class="stat">
+    <td><image width="15" height="15" src="/images/info"></image>  General Info:</td>
+    <td id="info_tally">0</td>
+  </tr>
+</table>
+<br>
+</body>
+</html>
