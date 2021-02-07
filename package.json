@@ -4,17 +4,16 @@
   "description": "Mass Target Enumeration",
   "main": "index.js",
   "dependencies": {
-    "chrome-launcher": "^0.10.5",
-    "chrome-remote-interface": "^0.27.0",
     "dateformat": "^3.0.3",
     "dns": "^0.2.2",
     "dns-axfr": "^0.2.3",
-    "evilscan": "^1.7.1",
+    "evilscan": "^1.7.9",
     "express": "^4.16.4",
     "netmask": "^1.0.6",
     "ping": "^0.2.2",
+    "puppeteer": "^7.0.1",
     "socket.io": "^2.2.0",
-    "whois": "^2.9.0"
+    "whois": "^2.13.3"
   },
   "devDependencies": {},
   "scripts": {

@@ -11,8 +11,7 @@ var axfr = require('dns-axfr');
 //CIDR parser
 netmask = require('netmask').Netmask
 //headless chrome stuff
-const chromeLauncher = require('chrome-launcher');
-const CDP = require('chrome-remote-interface');
+const puppeteer = require('puppeteer');
 //port scanner
 evilscan = require('evilscan');
 //ping sweeps
@@ -974,61 +973,43 @@ function wait (timeout) {
 
 //sorry this function is so funky! had to do some sync gynastics to keep enumeration to a human level so we don't get busted ;D
 async function linkedinMiner(parent_node, io, linkedin_cookie, org_id, start_page, end_page) {
-  async function launchChrome() {
-    return await chromeLauncher.launch({
-      chromeFlags: [
-        '--headless',
-        '--disable-gpu'
-      ]
-    });
-  }
-  const chrome = await launchChrome();
-  const protocol = await CDP({
-    port: chrome.port
-  });
+  let puppet_options = ["--ignore-certificate-errors", "--disable-blink-features=AutomationControlled"]
 
-  const {
-    DOM,
-    Page,
-    Emulation,
-    Runtime
-  } = protocol;
-
-  await Promise.all([Page.enable(), Runtime.enable(), DOM.enable()]);
-  await protocol.Network.setCookie({
-    name: "li_at",
-    value: linkedin_cookie,
-    domain: "www.linkedin.com"
+  let browser = await puppeteer.launch({
+    headless: true,
+    ignoreHTTPSErrors: true,
+    ignoreDefaultArgs: ["--enable-automation"],
+    defaultViewport: null,
+    args: puppet_options
   })
 
+  var page = await browser.newPage()
+
+  await page.setCookie({
+    'value': linkedin_cookie,
+    'domain': 'www.linkedin.com',
+    'expires': Date.now() / 1000 + 10000,
+    'name': 'li_at'
+  });
+ 
   async function getPage(page_number){
     return new Promise(async function(resolve, reject){
-      Page.navigate({
-        url: 'https://www.linkedin.com/search/results/people/?facetCurrentCompany=%5B%22' + org_id + '%22%5D&page=' + page_number
-      });
+      await page.goto('https://www.linkedin.com/search/results/people/?currentCompany=%5B%22' + org_id + '%22%5D&page=' + page_number)
   
-      Page.loadEventFired(async() => {
-        await wait(2000)
-        script1 = "window.scrollTo(0,(document.body.scrollHeight/2));"
-        result = await Runtime.evaluate({
-          expression: script1
-        });
-        await wait(2000)
-        script1 = "window.scrollTo(0,document.body.scrollHeight);"
-        result = await Runtime.evaluate({
-          expression: script1
-        });
-        await wait(2000)
-//         script1 = 'names = document.getElementsByClassName("name actor-name");output = "";for (i = 0; i < names.length; i++){ if (names[i].text != "LinkedIn Member"){output = output + "\\n" + (names[i].innerHTML)}};output;'
-         script1 = 'names = document.getElementsByClassName("name actor-name");output = "";for (i = 0; i < names.length; i++){ if (names[i].text != "LinkedIn Member"){output = output + "\\n" + (names[i].innerHTML + ":" + names[i].parentNode.parentNode.parentNode.parentNode.parentNode.getElementsByTagName("p")[0].textContent.trim())}};output;'
-
-        result = await Runtime.evaluate({
-          expression: script1
-        });
-
-        resolve(result.result.value);
-      });
-    });
+      await wait(2000)
+      let script1 = "window.scrollTo(0,(document.body.scrollHeight/2));"
+      await page.evaluate(script1)
+      await wait(2000)
+      let script2 = "window.scrollTo(0,document.body.scrollHeight);"
+      await page.evaluate(script2)
+      await wait(2000)
+//    let script3 = 'names = document.getElementsByClassName("name actor-name");output = "";for (i = 0; i < names.length; i++){ if (names[i].text != "LinkedIn Member"){output = output + "\\n" + (names[i].innerHTML)}};output;'
+//      let script3 = 'names = document.getElementsByClassName("name actor-name");output = "";for (i = 0; i < names.length; i++){ if (names[i].text != "LinkedIn Member"){output = output + "\\n" + (names[i].innerHTML + ":" + names[i].parentNode.parentNode.parentNode.parentNode.parentNode.getElementsByTagName("p")[0].textContent.trim())}};output;'
+      let script3 = 'people = document.getElementsByClassName("entity-result");output = "";for (i = 0; i < people.length; i++){let name = people[i].getElementsByClassName("entity-result__title-text  t-16")[0].getElementsByTagName("a")[0].children[0].children[0].innerText;if(name != "LinkedIn Member"){position = people[i].getElementsByClassName("entity-result__primary-subtitle t-14 t-black")[0].innerText;output = output + `\\n${name}:${position}`;}};output;'
+      result = await page.evaluate(script3)
+      //console.log(result)
+      resolve(result)
+    })
   }
 
   for (i=start_page;i<=end_page;i++) {
@@ -1053,7 +1034,6 @@ async function linkedinMiner(parent_node, io, linkedin_cookie, org_id, start_pag
     }
   }
 
-  protocol.close();
-  chrome.kill();
+  browser.close();
 
 }
