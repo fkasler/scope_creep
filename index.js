@@ -1005,7 +1005,7 @@ async function linkedinMiner(parent_node, io, linkedin_cookie, org_id, start_pag
       await wait(2000)
 //    let script3 = 'names = document.getElementsByClassName("name actor-name");output = "";for (i = 0; i < names.length; i++){ if (names[i].text != "LinkedIn Member"){output = output + "\\n" + (names[i].innerHTML)}};output;'
 //      let script3 = 'names = document.getElementsByClassName("name actor-name");output = "";for (i = 0; i < names.length; i++){ if (names[i].text != "LinkedIn Member"){output = output + "\\n" + (names[i].innerHTML + ":" + names[i].parentNode.parentNode.parentNode.parentNode.parentNode.getElementsByTagName("p")[0].textContent.trim())}};output;'
-      let script3 = 'people = document.getElementsByClassName("entity-result");output = "";for (i = 0; i < people.length; i++){let name = people[i].getElementsByClassName("entity-result__title-text  t-16")[0].getElementsByTagName("a")[0].children[0].children[0].innerText;if(name != "LinkedIn Member"){position = people[i].getElementsByClassName("entity-result__primary-subtitle t-14 t-black")[0].innerText;output = output + `\\n${name}:${position}`;}};output;'
+      let script3 = 'people = document.getElementsByClassName("entity-result");output = "";for (i = 0; i < people.length; i++){let name; try{name = people[i].getElementsByClassName("entity-result__title-text  t-16")[0].getElementsByTagName("a")[0].children[0].children[0].innerText}catch(err){continue};if(name != "LinkedIn Member"){position = people[i].getElementsByClassName("entity-result__primary-subtitle t-14 t-black")[0].innerText;output = output + `\\n${name}:${position}`;}};output;'
       result = await page.evaluate(script3)
       //console.log(result)
       resolve(result)
