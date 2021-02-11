@@ -5,6 +5,7 @@ var app = require('express')();
 var http = require('http').Server(app);
 http_resolver = require('http')
 https_resolver = require('https')
+process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
 var io = require('socket.io')(http);
 var dns = require('dns');
 var axfr = require('dns-axfr');
@@ -249,6 +250,30 @@ io.on('connection', function(socket){
         })
       });
     //otherwise treat like a single query
+    }else if(query_object.node_type == "port"){
+      let host = query_object.node_id.split(':')[0]
+      let port = query_object.node_id.split(':')[1]
+      let options = {
+        host: host,
+        port: port,
+        method: 'GET'
+      }
+      try{
+        let req = https_resolver.request(options, function(res) {
+          let host_names = res.connection.getPeerCertificate().subjectaltname.replace(/DNS:/g,'').split(',')
+          host_names.forEach(function(host_name){
+            if(host_name.trim().split('.').length == 2){
+              new_node = JSON.parse('{"id": "'+ host_name.trim() + '", "parent": "' + query_object.node_id + '", "node_type": "network"}')
+            }else{
+              new_node = JSON.parse('{"id": "'+ host_name.trim() + '", "parent": "' + query_object.node_id + '", "node_type": "subdomain"}')
+            }
+            io.emit('add_node', new_node)
+          })
+        })
+        req.end()
+      }catch(err){
+        //no cert names
+      }
     }else{
       dns.reverse(query_object.node_id, function(err, addresses){
         for (server in addresses){
@@ -260,6 +285,28 @@ io.on('connection', function(socket){
           io.emit('add_node', new_node)
         }
       })
+      let host = query_object.node_id
+      let options = {
+        host: host,
+        port: 443,
+        method: 'GET'
+      }
+      try{
+        let req = https_resolver.request(options, function(res) {
+          let host_names = res.connection.getPeerCertificate().subjectaltname.replace(/DNS:/g,'').split(',')
+          host_names.forEach(function(host_name){
+            if(host_name.trim().split('.').length == 2){
+              new_node = JSON.parse('{"id": "'+ host_name.trim() + '", "parent": "' + query_object.node_id + '", "node_type": "network"}')
+            }else{
+              new_node = JSON.parse('{"id": "'+ host_name.trim() + '", "parent": "' + query_object.node_id + '", "node_type": "subdomain"}')
+            }
+            io.emit('add_node', new_node)
+          })
+        })
+        req.end()
+      }catch(err){
+        //no cert names
+      }
     }
   });
 
