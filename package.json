@@ -9,7 +9,7 @@
     "dns-axfr": "^0.2.3",
     "evilscan": "^1.7.9",
     "express": "^4.16.4",
-    "netmask": "^1.0.6",
+    "netmask": ">=2.0.1",
     "ping": "^0.2.2",
     "puppeteer": "^7.0.1",
     "socket.io": "^2.2.0",
